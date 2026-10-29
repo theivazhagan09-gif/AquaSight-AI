@@ -1,0 +1,35 @@
+import { Router } from 'express';
+import * as repo from '../repositories/dataRepo.js';
+import * as W from '../services/waterService.js';
+import { simulate } from '../services/allocationService.js';
+import { alerts } from '../services/alertService.js';
+import { toCsv } from '../services/csvService.js';
+import { callAi } from '../services/riskClient.js';
+import { parseCommon, parseMetric, parseAssess, parseAlloc } from '../validators/index.js';
+import { wrap } from '../middleware/error.js';
+const r = Router(); const ok = (res, data, meta = {}) => res.json({ ok: true, data, meta });
+r.get('/health', wrap(async (req, res) => { let ai = { status: 'unavailable' }; try { ai = await callAi('/health'); } catch {} ok(res, { backend: 'ok', ai_service: ai, data: { districts: repo.districts().length, periods: repo.periods().length } }); }));
+r.get('/periods', wrap(async (req, res) => ok(res, { periods: repo.periods(), default: repo.latestObservedPeriod() })));
+r.get('/districts', wrap(async (req, res) => { const { period, scenario } = parseCommon(req.query); const s = await W.snapshot(period, scenario); ok(res, s.rows, s.meta); }));
+r.get('/districts/:id', wrap(async (req, res) => { const { period, scenario } = parseCommon(req.query); const s = await W.snapshot(period, scenario); const row = s.rows.find(x => x.district_id === req.params.id);
+  if (!row) { const e = new Error('District not found'); e.status = 404; throw e; }
+  ok(res, { current: row, history: repo.recordsForDistrict(req.params.id), telemetry: repo.telemetry().filter(t => t.district_id === req.params.id) }, s.meta); }));
+r.get('/water/summary', wrap(async (req, res) => { const { period, scenario } = parseCommon(req.query); const s = await W.summary(period, scenario); ok(res, { kpis: s.kpis, top_deficit: s.top_deficit }, s.meta); }));
+r.get('/water/trend', wrap(async (req, res) => { const { scenario } = parseCommon(req.query); ok(res, await W.trend(scenario), { source: repo.SOURCE.source_name }); }));
+r.get('/water/map', wrap(async (req, res) => { const { period, scenario } = parseCommon(req.query); const metric = parseMetric(req.query); const s = await W.snapshot(period, scenario);
+  const pick = { rainfall: x => x.rainfall_mm, availability: x => x.availability_pct, demand: x => x.demand_mld, supply: x => x.supply_mld, deficit: x => x.deficit_mld, risk: x => x.stress_score, scenario: x => x.stress_score,
+    priority: x => (x.stress_score === null || x.deficit_pct === null ? null : +(0.7 * x.stress_score + 0.3 * Math.min(1, x.deficit_pct / 50)).toFixed(3)), coverage: x => 4 - x.factors.length };
+  ok(res, s.rows.map(x => ({ district_id: x.district_id, name: x.name, value: pick[metric](x), risk_category: x.risk_category })), { ...s.meta, metric }); }));
+r.get('/analytics/rainfall', wrap(async (req, res) => { const { period, scenario } = parseCommon(req.query); const s = await W.snapshot(period, scenario); ok(res, s.rows.map(x => ({ district_id: x.district_id, name: x.name, rainfall_mm: x.rainfall_mm, anomaly_mm: x.rainfall_anomaly_mm, demand_mld: x.demand_mld, supply_mld: x.supply_mld, deficit_mld: x.deficit_mld, stress_score: x.stress_score, season: x.season })), { ...s.meta, units: 'mm per quarter' }); }));
+r.get('/analytics/demand-supply', wrap(async (req, res) => { const { period, scenario } = parseCommon(req.query); const s = await W.snapshot(period, scenario); ok(res, s.rows, s.meta); }));
+r.get('/telemetry', wrap(async (req, res) => ok(res, repo.telemetry(), { source: 'rwl_tel_hr_tamil_nadu_sw_gw CSV (river-level telemetry, hourly)', units: 'metres', note: 'Only 4 stations in 4 districts; not used in the stress score.' })));
+r.post('/predictions/assess', wrap(async (req, res) => { const input = parseAssess(req.body); const out = await callAi('/predict/risk', input);
+  ok(res, { input, ...out, deficit_mld: input.demand_mld !== null && input.supply_mld !== null ? W.deficitMld(input.demand_mld, input.supply_mld) : null }, { simulation: true, generated_at: new Date().toISOString() }); }));
+r.post('/allocations/simulate', wrap(async (req, res) => { const out = await simulate(parseAlloc(req.body)); ok(res, out, out.meta); }));
+r.get('/alerts', wrap(async (req, res) => { const { period, scenario } = parseCommon(req.query); const a = await alerts(period, scenario); let list = a.alerts;
+  if (req.query.severity) list = list.filter(x => x.severity === req.query.severity); if (req.query.district) list = list.filter(x => x.district_id === req.query.district); ok(res, list, a.meta); }));
+r.get('/reports/export', wrap(async (req, res) => { const { period, scenario } = parseCommon(req.query); const s = await W.snapshot(period, scenario);
+  const cols = ['district_id', 'name', 'period', 'projected', 'rainfall_mm', 'rainfall_anomaly_mm', 'demand_mld', 'supply_mld', 'deficit_mld', 'deficit_pct', 'storage_pct', 'groundwater_m_bgl', 'stress_score', 'risk_category'];
+  const meta = [`AquaSight AI export | period ${period} | scenario ${JSON.stringify(scenario)}`, `source: ${s.meta.source.source_name} (${s.meta.source.dataset_type})`, 'units: rainfall mm/quarter; demand, supply, deficit MLD; storage %; groundwater m bgl; stress 0-1', `model: ${s.meta.model_type} ${s.meta.model_version || '(AI service unavailable)'}`, `generated_at: ${s.meta.generated_at}`, 'Estimated/simulated values - not official data.'];
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8'); res.setHeader('Content-Disposition', `attachment; filename="aquasight_${period}.csv"`); res.send(toCsv(s.rows, cols, meta)); }));
+export default r;

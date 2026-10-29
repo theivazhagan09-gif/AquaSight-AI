@@ -1,0 +1,55 @@
+{
+ "water_csv": "TN_Water_Shortage_ML_ready.csv",
+ "rows": 912,
+ "required_columns_ok": true,
+ "duplicate_district_period_rows": 0,
+ "missing_values_by_column": {},
+ "geo": {
+  "features_in_file": 37,
+  "matched_to_water_records": 37,
+  "unmatched_polygons": [],
+  "districts_without_polygon": [
+   {
+    "district_id": "TN15",
+    "name": "Mayiladuthurai"
+   }
+  ],
+  "water_districts": 38
+ },
+ "telemetry": {
+  "rows": 24619,
+  "stations": 4,
+  "unparsed_timestamps": 0,
+  "unmatched_districts": []
+ },
+ "periods": [
+  "2021-01-01",
+  "2021-04-01",
+  "2021-07-01",
+  "2021-10-01",
+  "2022-01-01",
+  "2022-04-01",
+  "2022-07-01",
+  "2022-10-01",
+  "2023-01-01",
+  "2023-04-01",
+  "2023-07-01",
+  "2023-10-01",
+  "2024-01-01",
+  "2024-04-01",
+  "2024-07-01",
+  "2024-10-01",
+  "2025-01-01",
+  "2025-04-01",
+  "2025-07-01",
+  "2025-10-01",
+  "2026-01-01",
+  "2026-04-01",
+  "2026-07-01",
+  "2026-10-01"
+ ],
+ "groundwater_range_m": [
+  1.8,
+  11.05
+ ]
+}
